@@ -1,0 +1,133 @@
+.word-card {
+  background: var(--bg-card);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-md);
+  padding: 0.875rem 1rem;
+  cursor: pointer;
+  transition: border-color 0.15s, background 0.15s, transform 0.15s;
+}
+.word-card:hover { border-color: var(--border-active); background: var(--bg-card-hover); }
+.word-card--selected {
+  border-color: var(--accent);
+  background: rgba(108,92,231,0.08);
+  box-shadow: var(--shadow-glow);
+}
+
+/* Top row */
+.wc-top {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 0.5rem;
+}
+.wc-word {
+  font-size: 1.1rem;
+  font-weight: 700;
+  color: var(--text-primary);
+  font-family: var(--font-mono);
+  letter-spacing: 0.02em;
+}
+.wc-region {
+  font-size: 0.68rem;
+  background: rgba(162,155,254,0.15);
+  color: var(--accent-light);
+  padding: 0.15rem 0.5rem;
+  border-radius: 99px;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+}
+
+/* Confidence bar */
+.wc-conf {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+}
+.wc-conf-bar {
+  flex: 1;
+  height: 5px;
+  background: var(--border);
+  border-radius: 99px;
+  overflow: hidden;
+}
+.wc-conf-fill {
+  height: 100%;
+  border-radius: 99px;
+  transition: width 0.5s ease;
+}
+.wc-conf-pct {
+  font-size: 0.78rem;
+  font-weight: 600;
+  font-family: var(--font-mono);
+  min-width: 3rem;
+  text-align: right;
+}
+
+/* Expanded */
+.wc-expanded {
+  margin-top: 1rem;
+  border-top: 1px solid var(--border);
+  padding-top: 1rem;
+  display: flex;
+  flex-direction: column;
+  gap: 1rem;
+}
+.wc-expanded h4 {
+  font-size: 0.8rem;
+  font-weight: 600;
+  color: var(--text-muted);
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  margin-bottom: 0.5rem;
+}
+
+/* Heatmap */
+.wc-heatmap {
+  width: 100%;
+  max-height: 180px;
+  object-fit: contain;
+  border-radius: var(--radius-sm);
+  border: 1px solid var(--border);
+}
+
+/* Explanation */
+.explanation-bullets {
+  list-style: none;
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+}
+.explanation-bullets li {
+  font-size: 0.83rem;
+  color: var(--text-secondary);
+  line-height: 1.5;
+  display: grid;
+  grid-template-columns: auto 1fr;
+  gap: 0.5rem;
+}
+.bullet-label {
+  font-weight: 600;
+  color: var(--accent-light);
+  white-space: nowrap;
+}
+
+/* Candidates table */
+.cand-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 0.8rem;
+}
+.cand-table th {
+  text-align: left;
+  color: var(--text-muted);
+  font-weight: 500;
+  padding: 0.3rem 0.4rem;
+  border-bottom: 1px solid var(--border);
+}
+.cand-table td {
+  padding: 0.3rem 0.4rem;
+  color: var(--text-secondary);
+  border-bottom: 1px solid var(--border);
+}
+.cand-best td { color: var(--text-primary); }
+.cand-best td:first-child { color: var(--accent-light); font-weight: 700; }

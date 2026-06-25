@@ -1,0 +1,62 @@
+.word-panel {
+  display: flex;
+  flex-direction: column;
+  gap: 0.75rem;
+  height: 100%;
+}
+
+.word-panel-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+}
+.word-panel-header h2 { font-size: 0.95rem; font-weight: 600; color: var(--text-secondary); }
+
+.timing-badge {
+  font-size: 0.75rem;
+  background: rgba(108,92,231,0.2);
+  color: var(--accent-light);
+  padding: 0.2rem 0.6rem;
+  border-radius: 99px;
+  border: 1px solid var(--accent);
+}
+
+.timing-row {
+  display: flex;
+  gap: 0.5rem;
+  flex-wrap: wrap;
+}
+.timing-chip {
+  display: flex;
+  flex-direction: column;
+  background: var(--bg-card);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  padding: 0.25rem 0.6rem;
+  font-size: 0.7rem;
+}
+.timing-mod { color: var(--text-muted); text-transform: uppercase; letter-spacing: 0.04em; }
+.timing-val { color: var(--info); font-family: var(--font-mono); }
+
+.word-search {
+  width: 100%;
+  background: var(--bg-card);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-md);
+  padding: 0.5rem 0.75rem;
+  color: var(--text-primary);
+  font-size: 0.875rem;
+  outline: none;
+  transition: border-color 0.2s;
+}
+.word-search:focus { border-color: var(--accent); }
+
+.word-list {
+  flex: 1;
+  overflow-y: auto;
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+}
+
+.no-words { font-size: 0.85rem; color: var(--text-muted); text-align: center; padding: 2rem; }

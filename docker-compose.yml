@@ -1,0 +1,49 @@
+version: "3.9"
+
+services:
+  # ── FastAPI Backend ──────────────────────────────────────────────────────────
+  api:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: xocr_api
+    ports:
+      - "8000:8000"
+    volumes:
+      # Mount model weights — download checkpoints here before running
+      - ./models:/app/models:ro
+    env_file:
+      - .env
+    environment:
+      - API_HOST=0.0.0.0
+      - API_PORT=8000
+    networks:
+      - xocr_net
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8000/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 60s
+
+  # ── React Frontend ────────────────────────────────────────────────────────────
+  frontend:
+    build:
+      context: ./frontend/react
+      dockerfile: Dockerfile
+    container_name: xocr_frontend
+    ports:
+      - "3000:3000"
+    environment:
+      - VITE_API_URL=http://api:8000
+    networks:
+      - xocr_net
+    depends_on:
+      api:
+        condition: service_healthy
+    restart: unless-stopped
+
+networks:
+  xocr_net:
+    driver: bridge
