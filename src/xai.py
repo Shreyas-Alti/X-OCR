@@ -227,19 +227,30 @@ class XAIGenerator:
             images=pil.convert("RGB"), return_tensors="pt"
         ).pixel_values.to(self._device)
 
-        # Target: last encoder block's LayerNorm
-        target_layer = model.encoder.encoder.layer[-1].layernorm_before
+        # Target: last encoder block's LayerNorm.
+        # This attribute path is correct for transformers >=4.35 with TrOCR.
+        # Wrapped in try-except: if the path changes in a future transformers
+        # version, we fall back to attention rollout rather than crashing.
+        try:
+            target_layer = model.encoder.encoder.layer[-1].layernorm_before
 
-        # GradCAM wrapper that works with ViT
-        cam = GradCAM(model=_ViTGradCAMWrapper(model, self._processor, self._device),
-                       target_layers=[target_layer])
+            # GradCAM wrapper that works with ViT
+            cam = GradCAM(model=_ViTGradCAMWrapper(model, self._processor, self._device),
+                           target_layers=[target_layer])
 
-        grayscale_cam = cam(input_tensor=pixel_values, targets=None)
-        heatmap = grayscale_cam[0]  # [H, W]
+            grayscale_cam = cam(input_tensor=pixel_values, targets=None)
+            heatmap = grayscale_cam[0]  # [H, W]
 
-        heatmap = cv2.resize(heatmap, (IMAGE_SIZE, IMAGE_SIZE), interpolation=cv2.INTER_LINEAR)
-        heatmap = (heatmap - heatmap.min()) / (heatmap.max() - heatmap.min() + 1e-8)
-        return heatmap.astype(np.float32)
+            heatmap = cv2.resize(heatmap, (IMAGE_SIZE, IMAGE_SIZE), interpolation=cv2.INTER_LINEAR)
+            heatmap = (heatmap - heatmap.min()) / (heatmap.max() - heatmap.min() + 1e-8)
+            return heatmap.astype(np.float32)
+
+        except Exception as exc:
+            print(
+                f"[XAIGenerator] GradCAM failed ({exc}). "
+                "Falling back to attention rollout."
+            )
+            return self.generate_attention_rollout(image, model)
 
     # ─────────────────────────────────────────────────────────────────────────
     # Method 3 — Character-level Attribution

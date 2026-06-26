@@ -1,4 +1,4 @@
-import { useRef, useState, useEffect } from 'react'
+import { useRef, useState, useEffect, useCallback } from 'react'
 import './DocumentPanel.css'
 
 const REGION_COLORS = {
@@ -11,17 +11,17 @@ const REGION_COLORS = {
 export default function DocumentPanel({ imageUrl, regions, selectedWord, onSelectWord, loading }) {
   const canvasRef = useRef(null)
   const imgRef = useRef(null)
+  const wrapperRef = useRef(null)
   const [imgDims, setImgDims] = useState(null)
 
-  // Draw bounding boxes on canvas overlay
-  useEffect(() => {
-    if (!canvasRef.current || !imgDims || regions.length === 0) return
-    const canvas = canvasRef.current
+  // Draw bounding boxes — called whenever dims or regions change
+  const drawBoxes = useCallback((canvas, dims) => {
+    if (!canvas || !dims || regions.length === 0) return
     const ctx = canvas.getContext('2d')
     ctx.clearRect(0, 0, canvas.width, canvas.height)
 
-    const scaleX = canvas.width / imgDims.natural.w
-    const scaleY = canvas.height / imgDims.natural.h
+    const scaleX = canvas.width / dims.natural.w
+    const scaleY = canvas.height / dims.natural.h
 
     regions.forEach((region) => {
       const [x1, y1, x2, y2] = region.bbox
@@ -36,21 +36,50 @@ export default function DocumentPanel({ imageUrl, regions, selectedWord, onSelec
       ctx.fillStyle = color + '22'
       ctx.fillRect(sx, sy, sw, sh)
 
-      // Label
       ctx.fillStyle = color
       ctx.font = '11px Inter, sans-serif'
       ctx.fillRect(sx, sy - 16, Math.min(sw, 90), 16)
       ctx.fillStyle = '#fff'
       ctx.fillText(region.region_type, sx + 4, sy - 3)
     })
-  }, [regions, imgDims])
+  }, [regions])
 
-  const handleImgLoad = (e) => {
-    setImgDims({
-      natural: { w: e.target.naturalWidth, h: e.target.naturalHeight },
-      rendered: { w: e.target.offsetWidth, h: e.target.offsetHeight },
+  // Re-draw when dims or regions change
+  useEffect(() => {
+    drawBoxes(canvasRef.current, imgDims)
+  }, [regions, imgDims, drawBoxes])
+
+  // Update canvas dimensions from current image rendered size
+  const syncCanvasDims = useCallback(() => {
+    if (!imgRef.current) return
+    const img = imgRef.current
+    const newDims = {
+      natural:  { w: img.naturalWidth,  h: img.naturalHeight },
+      rendered: { w: img.offsetWidth,   h: img.offsetHeight  },
+    }
+    // Update canvas size to match current rendered size
+    if (canvasRef.current) {
+      canvasRef.current.width  = img.offsetWidth  || 400
+      canvasRef.current.height = img.offsetHeight || 400
+    }
+    setImgDims(newDims)
+  }, [])
+
+  // Set dims on image load
+  const handleImgLoad = useCallback(() => {
+    syncCanvasDims()
+  }, [syncCanvasDims])
+
+  // Fix 8: ResizeObserver — redraw canvas whenever the image wrapper resizes
+  // (e.g. browser window resize). Without this, bbox overlays drift off.
+  useEffect(() => {
+    if (!wrapperRef.current) return
+    const observer = new ResizeObserver(() => {
+      syncCanvasDims()
     })
-  }
+    observer.observe(wrapperRef.current)
+    return () => observer.disconnect()
+  }, [syncCanvasDims])
 
   return (
     <div className="doc-panel">
@@ -68,7 +97,7 @@ export default function DocumentPanel({ imageUrl, regions, selectedWord, onSelec
         )}
       </div>
 
-      <div className="doc-image-wrapper">
+      <div className="doc-image-wrapper" ref={wrapperRef}>
         <img
           ref={imgRef}
           src={imageUrl}

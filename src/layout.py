@@ -311,9 +311,10 @@ class LayoutAnalyser:
             metric_for_best_model="eval_loss",
         )
 
-        # NOTE: A full tokenise-and-align function is in notebooks/02_trocr_training.ipynb
-        # This stub shows the structure; run the notebook for complete training.
-        print("[LayoutAnalyser] Training stub — see notebooks/02_trocr_training.ipynb")
+        # NOTE: Full tokenise-and-align implementation with seqeval F1 metric
+        # and EarlyStoppingCallback is in notebooks/02b_layoutlmv3_training.ipynb
+        # This stub shows the Trainer structure; run the notebook for complete training.
+        print("[LayoutAnalyser] Training stub — see notebooks/02b_layoutlmv3_training.ipynb")
 
 
 # ─────────────────────────────────────────────────────────────────────────────

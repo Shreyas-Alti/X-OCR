@@ -215,8 +215,12 @@ class TrOCREngine:
             # step_scores: [num_seq, vocab_size] — raw logits
             log_probs = torch.log_softmax(step_scores, dim=-1)  # [num_seq, vocab]
 
-            # Find the token chosen at this step for each sequence
-            # sequences[:, step_idx + 1] because index 0 is the decoder start token
+            # sequences[:, step_idx + 1]: index 0 is decoder start token.
+            # Guard against short sequences (single/two-char words) where the
+            # generated sequence is shorter than the number of scoring steps.
+            if step_idx + 1 >= sequences.shape[1]:
+                break
+
             token_indices = sequences[:, step_idx + 1]  # [num_seq]
 
             for seq_i in range(num_sequences):
@@ -295,7 +299,8 @@ class TrOCREngine:
             default_data_collator,
             EarlyStoppingCallback,
         )
-        from datasets import load_metric
+        # Note: use jiwer.cer / jiwer.wer directly for metrics (see notebook 02).
+        # The datasets.load_metric API was removed in datasets>=2.0.
 
         # The full dataset loading / collation logic is in the notebook.
         # This stub shows the Trainer configuration.

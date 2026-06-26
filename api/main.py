@@ -72,6 +72,17 @@ async def lifespan(app: FastAPI):
     preprocessor = Preprocessor()
     layout_analyser = LayoutAnalyser(mock=mock)
     ocr_engine = TrOCREngine(mock=mock)
+
+    # Guard: if non-mock mode but model failed to load, warn clearly.
+    # This prevents silent fallback to mock heatmaps with no indication why.
+    if not mock and getattr(ocr_engine, "_model", None) is None:
+        print(
+            "[Startup] WARNING: TrOCREngine model is None in non-mock mode. "
+            "This usually means the model download failed or TROCR_FINETUNED_PATH "
+            "is misconfigured. OCR output will be mock/random. "
+            "Check your network connection or set MOCK_MODE=true."
+        )
+
     xai_generator = XAIGenerator(
         model=ocr_engine._model if not mock else None,
         processor=ocr_engine._processor if not mock else None,
