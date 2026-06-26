@@ -91,6 +91,13 @@ FUNSD is auto-downloaded from HuggingFace when you first run layout training.
 uvicorn api.main:app --reload --port 8000
 ```
 
+> **Note:** Running `uvicorn` directly serves **only the FastAPI backend** on port 8000.
+> The React frontend makes requests to `/api/ocr`, which nginx rewrites to `/ocr` when
+> running via docker-compose. If you run `uvicorn` directly without docker-compose, the
+> frontend proxy is absent and all `/api/ocr` calls return 404. For full-stack development
+> (API + React UI together), use `docker-compose up` instead. Use `uvicorn` only when
+> testing the API directly with curl or the `/docs` Swagger UI.
+
 ### 5. Run Gradio demo
 
 ```bash

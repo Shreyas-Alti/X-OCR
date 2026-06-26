@@ -210,23 +210,26 @@ class OCRPipeline:
         # ── Step 4: OCR — segment all regions first (Module 3) ───────────────
         # Run segmentation + TrOCR across ALL regions before building context
         # windows, so we can use a GLOBAL word list for context (not per-region).
+        # Returns list of (word_crop, candidates) tuples so each word gets its
+        # own crop for Module 6 heatmap generation.
         t0 = time.perf_counter()
-        region_candidate_lists: List[List[List[OCRCandidate]]] = []
+        region_word_data: List[List[Tuple[Image.Image, List[OCRCandidate]]]] = []
         for region in regions:
             crop = region["cropped_image"]
             try:
                 raw = self._segment_and_recognise(crop)
             except Exception as exc:
                 print(f"[Pipeline] Module 3 (TrOCREngine) failed on region: {exc}")
-                raw = [[]]
-            region_candidate_lists.append(raw)
+                raw = [(crop, [])]
+            region_word_data.append(raw)
         timings["ocr"] = round(time.perf_counter() - t0, 4)
 
-        # Build global flat word list (top-1 per position) for context windows
+        # Build global flat word list (top-1 per position) for context windows.
+        # Uses cs.top_candidate (rank==1 = min rank) for readability.
         flat_all_candidates: List[List[OCRCandidate]] = [
             cands
-            for region_cands in region_candidate_lists
-            for cands in region_cands
+            for region_data in region_word_data
+            for _, cands in region_data
         ]
         flat_top_words: List[str] = [
             min(cands, key=lambda c: c.rank).word if cands else ""
@@ -244,12 +247,11 @@ class OCRPipeline:
         for region_idx, region in enumerate(regions):
             region_type = region["region_type"]
             bbox = region["bbox"]
-            crop = region["cropped_image"]
-            raw_candidates_per_word = region_candidate_lists[region_idx]
+            raw_word_data = region_word_data[region_idx]  # [(word_crop, candidates), ...]
 
             # ── Module 4: Build CandidateSets with GLOBAL context window ──────
             candidate_sets: List[CandidateSet] = []
-            for local_i, cands in enumerate(raw_candidates_per_word):
+            for local_i, (word_crop, cands) in enumerate(raw_word_data):
                 global_i = global_word_offset + local_i
                 left_start = max(0, global_i - context_window)
                 right_end = min(len(flat_top_words), global_i + context_window + 1)
@@ -261,7 +263,7 @@ class OCRPipeline:
                     position=global_i,
                 )
                 candidate_sets.append(cs)
-            global_word_offset += len(raw_candidates_per_word)
+            global_word_offset += len(raw_word_data)
 
             # ── Module 5: Context Reasoning ───────────────────────────────────
             t0 = time.perf_counter()
@@ -278,26 +280,32 @@ class OCRPipeline:
             # ── Modules 6 & 7: XAI + Explanation per word ────────────────────
             word_results: List[WordResult] = []
 
-            for cs in candidate_sets:
+            for word_i, cs in enumerate(candidate_sets):
                 if not cs.candidates:
                     continue
 
                 best = max(cs.candidates, key=lambda c: c.final_score)
+
+                # Retrieve the individual word crop for this position.
+                # Each word gets its OWN heatmap — not the whole region crop.
+                # This prevents all words in a multi-word region from showing
+                # the same region-level attention map.
+                word_crop, _ = raw_word_data[word_i] if word_i < len(raw_word_data) else (region["cropped_image"], None)
 
                 # Module 6: Heatmap
                 t0 = time.perf_counter()
                 heatmap_b64 = ""
                 char_attn_desc = "Attention information not available."
                 try:
-                    rollout = self.xai_generator.generate_attention_rollout(crop)
-                    overlay = self.xai_generator.generate_overlay(crop, rollout)
+                    rollout = self.xai_generator.generate_attention_rollout(word_crop)
+                    overlay = self.xai_generator.generate_overlay(word_crop, rollout)
                     heatmap_b64 = self.xai_generator.overlay_to_base64(overlay)
 
                     # Character-level attribution.
                     # Note: uses greedy decoding (num_beams=1) for speed —
                     # the decoding path may differ slightly from the 5-beam
                     # result used for the final word selection in Module 3.
-                    char_heatmaps = self.xai_generator.generate_character_heatmaps(crop)
+                    char_heatmaps = self.xai_generator.generate_character_heatmaps(word_crop)
                     char_attn_desc = self.xai_generator.summarise_character_attention(
                         best.word, char_heatmaps
                     )
@@ -356,7 +364,7 @@ class OCRPipeline:
 
     def _segment_and_recognise(
         self, region_crop: Image.Image
-    ) -> List[List[OCRCandidate]]:
+    ) -> List[Tuple[Image.Image, List[OCRCandidate]]]:
         """
         Segment a region crop into individual word images using OpenCV
         connected-components, then run TrOCR on each word independently.
@@ -364,6 +372,14 @@ class OCRPipeline:
         TrOCR is a word-level model (fine-tuned on single-word IAM crops).
         Feeding it a full paragraph produces garbage — this method is the
         critical bridge between Layout (Module 2) and OCR (Module 3).
+
+        Returns
+        -------
+        List of (word_crop, candidates) tuples, one per segmented word.
+        The word_crop is passed to XAIGenerator so each word gets its own
+        heatmap rather than a shared region-level attention map.
+
+        Falls back to [(region_crop, candidates)] if no components found.
 
         Algorithm
         ---------
@@ -374,8 +390,6 @@ class OCRPipeline:
         4. Filter noise (area < 50 px or w/h < 5 px)
         5. Sort reading order: row (y // 10) then x
         6. Crop each word with small padding → TrOCR → candidates
-
-        Falls back to whole-region inference if no components are found.
         """
         import cv2
         import numpy as np
@@ -405,13 +419,13 @@ class OCRPipeline:
 
         if not word_boxes:
             candidates = self.ocr_engine.recognise(region_crop)
-            return [candidates] if candidates else [[]]
+            return [(region_crop, candidates)] if candidates else [(region_crop, [])]
 
         # Step 5: Reading-order sort — row bucket (y // 10), then x
         word_boxes.sort(key=lambda b: (b[1] // 10, b[0]))
 
         # Step 6: Crop and recognise each word independently
-        all_candidates: List[List[OCRCandidate]] = []
+        results: List[Tuple[Image.Image, List[OCRCandidate]]] = []
         img_w, img_h = region_crop.size
         pad = 4
         for (x1, y1, x2, y2) in word_boxes:
@@ -422,6 +436,6 @@ class OCRPipeline:
             word_crop = region_crop.crop((x1p, y1p, x2p, y2p))
             candidates = self.ocr_engine.recognise(word_crop)
             if candidates:
-                all_candidates.append(candidates)
+                results.append((word_crop, candidates))
 
-        return all_candidates if all_candidates else [[]]
+        return results if results else [(region_crop, [])]

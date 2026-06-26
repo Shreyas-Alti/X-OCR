@@ -44,9 +44,13 @@ except ImportError:
 # Constants
 # ─────────────────────────────────────────────────────────────────────────────
 
+# Default 4-label flat scheme (used with base model / when no labels.json found).
+# When a fine-tuned checkpoint is loaded, the label list is read from
+# labels.json saved alongside the checkpoint by notebook 02b.
+# This avoids the flat-vs-BIO mismatch if the notebook used the full BIO tagset.
 FUNSD_LABELS = ["other", "header", "question", "answer"]
 LABEL2ID = {l: i for i, l in enumerate(FUNSD_LABELS)}
-ID2LABEL = {i: l for i, l in enumerate(FUNSD_LABELS)}
+ID2LABEL  = {i: l for i, l in enumerate(FUNSD_LABELS)}
 
 # Model names
 DEFAULT_MODEL_NAME = "microsoft/layoutlmv3-base"
@@ -55,6 +59,26 @@ FINETUNED_PATH = os.environ.get("LAYOUTLMV3_FINETUNED_PATH", "models/layoutlmv3_
 # Column clustering: if two boxes have x1 values differing by < this fraction
 # of page width, they are considered same column.
 COLUMN_X1_THRESHOLD_FRACTION = 0.3
+
+
+def _load_label_scheme(checkpoint_dir: str) -> tuple:
+    """
+    Load label list from labels.json in the checkpoint directory.
+    Notebook 02b saves this file alongside the model weights so the
+    label scheme is always consistent with the fine-tuned checkpoint.
+
+    Falls back to FUNSD_LABELS (4-label flat scheme) if the file is absent.
+    """
+    label_file = os.path.join(checkpoint_dir, "labels.json")
+    if os.path.isfile(label_file):
+        import json
+        with open(label_file) as f:
+            labels = json.load(f)
+        label2id = {l: i for i, l in enumerate(labels)}
+        id2label  = {i: l for i, l in enumerate(labels)}
+        print(f"[LayoutAnalyser] Loaded {len(labels)}-label scheme from {label_file}")
+        return labels, label2id, id2label
+    return FUNSD_LABELS, LABEL2ID, ID2LABEL
 
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -122,22 +146,35 @@ class LayoutAnalyser:
     # ── Model Loading ─────────────────────────────────────────────────────────
 
     def _load_model(self, path: str) -> None:
-        """Load processor and model from local path or HuggingFace Hub."""
+        """Load processor and model from local path or HuggingFace Hub.
+
+        If the checkpoint directory contains a labels.json file (written
+        by notebook 02b after fine-tuning), the label scheme is loaded from
+        it. This handles the BIO vs flat-label mismatch between the base model
+        (4-label) and the fine-tuned model (7-label BIO tagset from FUNSD).
+        """
         import torch
         src = path if os.path.isdir(path) else DEFAULT_MODEL_NAME
+
+        # Load label scheme — from labels.json if present, else default 4-label
+        checkpoint_for_labels = path if os.path.isdir(path) else ""
+        labels, label2id, id2label = _load_label_scheme(checkpoint_for_labels)
+
         try:
             self._processor = LayoutLMv3Processor.from_pretrained(src, apply_ocr=True)
             self._model = LayoutLMv3ForTokenClassification.from_pretrained(
                 src,
-                num_labels=len(FUNSD_LABELS),
-                id2label=ID2LABEL,
-                label2id=LABEL2ID,
+                num_labels=len(labels),
+                id2label=id2label,
+                label2id=label2id,
             ).to(self._device)
             self._model.eval()
+            self._id2label = id2label   # store for inference
         except Exception as exc:
             # Graceful degradation: fall back to single-region mode
             print(f"[LayoutAnalyser] Model load failed ({exc}). Using fallback.")
             self._model = None
+            self._id2label = ID2LABEL
 
     # ── LayoutLMv3 Inference ──────────────────────────────────────────────────
 
