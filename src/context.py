@@ -197,9 +197,12 @@ class ContextReasoner:
             self.mode = "mock"
 
     def _call_anthropic(self, system: str, user: str) -> str:
+        # max_tokens=512 gives comfortable headroom for 5 candidates with long words.
+        # The JSON response for 5 typical words is ~100-200 tokens; 256 could truncate
+        # if the model adds any preamble despite the system prompt instruction.
         message = self._anthropic_client.messages.create(
             model=self.anthropic_model,
-            max_tokens=256,
+            max_tokens=512,
             system=system,
             messages=[{"role": "user", "content": user}],
         )
@@ -226,8 +229,14 @@ class ContextReasoner:
             data=payload,
             headers={"Content-Type": "application/json"},
         )
-        with urllib.request.urlopen(req, timeout=30) as resp:
-            result = json.loads(resp.read())
+        try:
+            with urllib.request.urlopen(req, timeout=30) as resp:
+                result = json.loads(resp.read())
+        except urllib.error.URLError as exc:
+            raise Exception(
+                f"Ollama server not reachable at {host}. "
+                f"Is it running? Start with: ollama serve  (underlying error: {exc})"
+            ) from exc
         return result["message"]["content"]
 
     # ── Response Parsing ──────────────────────────────────────────────────────
@@ -323,4 +332,9 @@ class ContextReasoner:
                 best_v, best_c = v_weight, c_weight
 
         print(f"[GridSearch] Best: visual={best_v}, context={best_c}, CER={best_cer:.4f}")
+        print(
+            f"[GridSearch] Update your .env file:\n"
+            f"  FUSION_VISUAL_WEIGHT={best_v}\n"
+            f"  FUSION_CONTEXT_WEIGHT={best_c}"
+        )
         return best_v, best_c, best_cer

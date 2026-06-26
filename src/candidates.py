@@ -108,6 +108,17 @@ def build_candidate_sets(
     Returns
     -------
     list[CandidateSet]
+
+    Note
+    ----
+    context_left and context_right are built from the **visual-only** top-1
+    candidate (rank == 1) for each neighbouring position, because context
+    scoring has not yet run at this stage.  This is a known architectural
+    tradeoff — the LLM sees context constructed from potentially uncorrected
+    visual predictions.  In practice the visual top-1 is correct for the
+    majority of common words, so the context signal is still useful.
+    A multi-pass approach (score, rebuild context, re-score) would eliminate
+    this limitation but is out of scope for the current system.
     """
     # Extract the top-1 word from each position for context construction
     top_words: List[str] = [
