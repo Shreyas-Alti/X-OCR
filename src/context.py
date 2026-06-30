@@ -8,6 +8,7 @@ Supported backends
 ------------------
 * "anthropic"  — Anthropic API (claude-haiku-4-5) — requires ANTHROPIC_API_KEY
 * "ollama"     — Qwen 3 1.7B via local Ollama server — free, offline
+* "gemini"     — Google Gemini API (gemini-1.5-flash) — requires GEMINI_API_KEY
 * "mock"       — Returns uniform context scores (no LLM call, for dev/CI)
 
 Fusion formula (spec):
@@ -76,7 +77,7 @@ class ContextReasoner:
     Parameters
     ----------
     mode : str
-        One of "anthropic", "ollama", "mock".  Defaults to LLM_MODE env var.
+        One of "anthropic", "ollama", "gemini", "mock".  Defaults to LLM_MODE env var.
     visual_weight : float
         Weight for visual_score in fusion formula (default 0.7).
     context_weight : float
@@ -85,6 +86,8 @@ class ContextReasoner:
         Anthropic model name (default claude-haiku-4-5).
     ollama_model : str
         Ollama model name (default qwen3:1.7b).
+    gemini_model : str
+        Gemini model name (default gemini-1.5-flash).
     max_retries : int
         Max JSON parse retries per LLM call.
     """
@@ -96,6 +99,7 @@ class ContextReasoner:
         context_weight: float = DEFAULT_CONTEXT_WEIGHT,
         anthropic_model: str = "claude-haiku-4-5",
         ollama_model: str = "qwen3:1.7b",
+        gemini_model: str = "gemini-2.5-flash",
         max_retries: int = 1,
     ) -> None:
         self.mode = mode or os.environ.get("LLM_MODE", "mock")
@@ -103,6 +107,7 @@ class ContextReasoner:
         self.context_weight = context_weight
         self.anthropic_model = anthropic_model
         self.ollama_model = ollama_model
+        self.gemini_model = os.environ.get("GEMINI_MODEL", gemini_model)
         self.max_retries = max_retries
 
         # Lazily initialised clients
@@ -180,21 +185,28 @@ class ContextReasoner:
             return self._call_anthropic(system, user)
         elif self.mode == "ollama":
             return self._call_ollama(system, user)
+        elif self.mode == "gemini":
+            return self._call_gemini(system, user)
         raise ValueError(f"Unknown LLM mode: {self.mode}")
 
     # ── Anthropic Backend ─────────────────────────────────────────────────────
 
     def _init_client(self) -> None:
-        if self.mode != "anthropic":
-            return
-        try:
-            import anthropic
-            self._anthropic_client = anthropic.Anthropic(
-                api_key=os.environ.get("ANTHROPIC_API_KEY", "")
-            )
-        except ImportError:
-            print("[ContextReasoner] anthropic package not installed. Falling back to mock.")
-            self.mode = "mock"
+        if self.mode == "anthropic":
+            try:
+                import anthropic
+                self._anthropic_client = anthropic.Anthropic(
+                    api_key=os.environ.get("ANTHROPIC_API_KEY", "")
+                )
+            except ImportError:
+                print("[ContextReasoner] anthropic package not installed. Falling back to mock.")
+                self.mode = "mock"
+        elif self.mode == "gemini":
+            try:
+                import google.generativeai  # noqa: F401 — validate install only
+            except ImportError:
+                print("[ContextReasoner] google-generativeai not installed. Falling back to mock.")
+                self.mode = "mock"
 
     def _call_anthropic(self, system: str, user: str) -> str:
         # max_tokens=512 gives comfortable headroom for 5 candidates with long words.
@@ -207,6 +219,23 @@ class ContextReasoner:
             messages=[{"role": "user", "content": user}],
         )
         return message.content[0].text
+
+    # ── Gemini Backend ────────────────────────────────────────────────────────
+
+    def _call_gemini(self, system: str, user: str) -> str:
+        """
+        Call the Google Gemini API.
+        Uses system_instruction as a GenerativeModel constructor arg
+        (the correct pattern for all Gemini 1.5 / 2.x models).
+        """
+        import google.generativeai as genai
+        genai.configure(api_key=os.environ.get("GEMINI_API_KEY", ""))
+        model = genai.GenerativeModel(
+            model_name=self.gemini_model,
+            system_instruction=system,
+        )
+        response = model.generate_content(user)
+        return response.text
 
     # ── Ollama Backend ────────────────────────────────────────────────────────
 

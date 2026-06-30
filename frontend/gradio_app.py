@@ -147,12 +147,6 @@ def _truncate_base64(obj, max_len: int = 100):
 
 with gr.Blocks(
     title="X-OCR: Explainable OCR",
-    theme=gr.themes.Soft(primary_hue="violet"),
-    css="""
-        .header-text { text-align: center; margin-bottom: 1rem; }
-        .badge { background: #7c3aed; color: white; padding: 2px 8px;
-                 border-radius: 4px; font-size: 0.75rem; }
-    """,
 ) as demo:
     gr.HTML("""
         <div class="header-text">
@@ -180,7 +174,6 @@ with gr.Blocks(
                         label="Recognised Text",
                         lines=15,
                         max_lines=30,
-                        show_copy_button=True,
                     )
 
                 with gr.TabItem("📋 Full JSON Result"):
@@ -227,4 +220,10 @@ if __name__ == "__main__":
         server_port=int(os.environ.get("GRADIO_PORT", "7860")),
         share=False,
         show_error=True,
+        theme=gr.themes.Soft(primary_hue="violet"),
+        css="""
+            .header-text { text-align: center; margin-bottom: 1rem; }
+            .badge { background: #7c3aed; color: white; padding: 2px 8px;
+                     border-radius: 4px; font-size: 0.75rem; }
+        """,
     )

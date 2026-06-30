@@ -130,11 +130,13 @@ class ExplanationAgent:
     Parameters
     ----------
     mode : str
-        "anthropic", "ollama", or "mock".
+        "anthropic", "ollama", "gemini", or "mock".
     anthropic_model : str
         Anthropic model to use (default claude-haiku-4-5).
     ollama_model : str
         Ollama model to use (default qwen3:1.7b).
+    gemini_model : str
+        Gemini model to use (default gemini-2.5-flash).
     max_retries : int
         Number of retry attempts on JSON parse failure (spec: 1).
     """
@@ -144,11 +146,13 @@ class ExplanationAgent:
         mode: Optional[str] = None,
         anthropic_model: str = "claude-haiku-4-5",
         ollama_model: str = "qwen3:1.7b",
+        gemini_model: str = "gemini-1.5-flash",
         max_retries: int = 1,
     ) -> None:
         self.mode = mode or os.environ.get("LLM_MODE", "mock")
         self.anthropic_model = anthropic_model
         self.ollama_model = ollama_model
+        self.gemini_model = os.environ.get("GEMINI_MODEL", gemini_model)
         self.max_retries = max_retries
         self._client: Optional[Any] = None
         self._init_client()
@@ -225,22 +229,29 @@ class ExplanationAgent:
     # ── LLM Backends ─────────────────────────────────────────────────────────
 
     def _init_client(self) -> None:
-        if self.mode != "anthropic":
-            return
-        try:
-            import anthropic
-            self._client = anthropic.Anthropic(
-                api_key=os.environ.get("ANTHROPIC_API_KEY", "")
-            )
-        except ImportError:
-            print("[ExplanationAgent] anthropic not installed. Using mock mode.")
-            self.mode = "mock"
+        if self.mode == "anthropic":
+            try:
+                import anthropic
+                self._client = anthropic.Anthropic(
+                    api_key=os.environ.get("ANTHROPIC_API_KEY", "")
+                )
+            except ImportError:
+                print("[ExplanationAgent] anthropic not installed. Using mock mode.")
+                self.mode = "mock"
+        elif self.mode == "gemini":
+            try:
+                import google.generativeai  # noqa: F401 — validate install only
+            except ImportError:
+                print("[ExplanationAgent] google-generativeai not installed. Using mock mode.")
+                self.mode = "mock"
 
     def _raw_llm_call(self, system: str, user: str) -> str:
         if self.mode == "anthropic":
             return self._call_anthropic(system, user)
-        if self.mode == "ollama":
+        elif self.mode == "ollama":
             return self._call_ollama(system, user)
+        elif self.mode == "gemini":
+            return self._call_gemini(system, user)
         raise ValueError(f"Unknown mode: {self.mode}")
 
     def _call_anthropic(self, system: str, user: str) -> str:
@@ -251,6 +262,21 @@ class ExplanationAgent:
             messages=[{"role": "user", "content": user}],
         )
         return message.content[0].text
+
+    def _call_gemini(self, system: str, user: str) -> str:
+        """
+        Call the Google Gemini API.
+        Uses system_instruction as a GenerativeModel constructor arg
+        (the correct pattern for all Gemini 1.5 / 2.x models).
+        """
+        import google.generativeai as genai
+        genai.configure(api_key=os.environ.get("GEMINI_API_KEY", ""))
+        model = genai.GenerativeModel(
+            model_name=self.gemini_model,
+            system_instruction=system,
+        )
+        response = model.generate_content(user)
+        return response.text
 
     def _call_ollama(self, system: str, user: str) -> str:
         import json as _json
