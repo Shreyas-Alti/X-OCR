@@ -8,7 +8,7 @@ Supported backends
 ------------------
 * "anthropic"  — Anthropic API (claude-haiku-4-5) — requires ANTHROPIC_API_KEY
 * "ollama"     — Qwen 3 1.7B via local Ollama server — free, offline
-* "gemini"     — Google Gemini API (gemini-1.5-flash) — requires GEMINI_API_KEY
+* "gemini"     — Google Gemini API (gemini-2.5-flash) — requires GEMINI_API_KEY
 * "mock"       — Returns uniform context scores (no LLM call, for dev/CI)
 
 Fusion formula (spec):
@@ -203,9 +203,9 @@ class ContextReasoner:
                 self.mode = "mock"
         elif self.mode == "gemini":
             try:
-                import google.generativeai  # noqa: F401 — validate install only
+                from google import genai  # noqa: F401 — validate install only
             except ImportError:
-                print("[ContextReasoner] google-generativeai not installed. Falling back to mock.")
+                print("[ContextReasoner] google-genai not installed. Falling back to mock.")
                 self.mode = "mock"
 
     def _call_anthropic(self, system: str, user: str) -> str:
@@ -224,17 +224,20 @@ class ContextReasoner:
 
     def _call_gemini(self, system: str, user: str) -> str:
         """
-        Call the Google Gemini API.
-        Uses system_instruction as a GenerativeModel constructor arg
-        (the correct pattern for all Gemini 1.5 / 2.x models).
+        Call the Google Gemini API using the current google-genai SDK.
+        The legacy google-generativeai package is end-of-life as of Nov 30, 2025.
         """
-        import google.generativeai as genai
-        genai.configure(api_key=os.environ.get("GEMINI_API_KEY", ""))
-        model = genai.GenerativeModel(
-            model_name=self.gemini_model,
-            system_instruction=system,
+        from google import genai
+        from google.genai import types
+
+        client = genai.Client(api_key=os.environ.get("GEMINI_API_KEY", ""))
+        response = client.models.generate_content(
+            model=self.gemini_model,
+            contents=user,
+            config=types.GenerateContentConfig(
+                system_instruction=system,
+            ),
         )
-        response = model.generate_content(user)
         return response.text
 
     # ── Ollama Backend ────────────────────────────────────────────────────────

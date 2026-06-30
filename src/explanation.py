@@ -146,7 +146,7 @@ class ExplanationAgent:
         mode: Optional[str] = None,
         anthropic_model: str = "claude-haiku-4-5",
         ollama_model: str = "qwen3:1.7b",
-        gemini_model: str = "gemini-1.5-flash",
+        gemini_model: str = "gemini-2.5-flash",
         max_retries: int = 1,
     ) -> None:
         self.mode = mode or os.environ.get("LLM_MODE", "mock")
@@ -240,9 +240,9 @@ class ExplanationAgent:
                 self.mode = "mock"
         elif self.mode == "gemini":
             try:
-                import google.generativeai  # noqa: F401 — validate install only
+                from google import genai  # noqa: F401 — validate install only
             except ImportError:
-                print("[ExplanationAgent] google-generativeai not installed. Using mock mode.")
+                print("[ExplanationAgent] google-genai not installed. Using mock mode.")
                 self.mode = "mock"
 
     def _raw_llm_call(self, system: str, user: str) -> str:
@@ -265,17 +265,20 @@ class ExplanationAgent:
 
     def _call_gemini(self, system: str, user: str) -> str:
         """
-        Call the Google Gemini API.
-        Uses system_instruction as a GenerativeModel constructor arg
-        (the correct pattern for all Gemini 1.5 / 2.x models).
+        Call the Google Gemini API using the current google-genai SDK.
+        The legacy google-generativeai package is end-of-life as of Nov 30, 2025.
         """
-        import google.generativeai as genai
-        genai.configure(api_key=os.environ.get("GEMINI_API_KEY", ""))
-        model = genai.GenerativeModel(
-            model_name=self.gemini_model,
-            system_instruction=system,
+        from google import genai
+        from google.genai import types
+
+        client = genai.Client(api_key=os.environ.get("GEMINI_API_KEY", ""))
+        response = client.models.generate_content(
+            model=self.gemini_model,
+            contents=user,
+            config=types.GenerateContentConfig(
+                system_instruction=system,
+            ),
         )
-        response = model.generate_content(user)
         return response.text
 
     def _call_ollama(self, system: str, user: str) -> str:

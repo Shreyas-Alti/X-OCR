@@ -142,10 +142,16 @@ class TestSelectBest:
 
 class TestGeminiModeInit:
     def test_gemini_falls_back_to_mock_when_package_missing(self, monkeypatch):
-        """If google-generativeai is not installed, mode must silently fall back to mock."""
-        import sys
-        # Simulate package not installed by blocking the import
-        monkeypatch.setitem(sys.modules, "google.generativeai", None)
+        """If google-genai is not installed, mode must silently fall back to mock."""
+        import builtins
+        real_import = builtins.__import__
+
+        def fake_import(name, *args, **kwargs):
+            if name == "google" or name.startswith("google.genai"):
+                raise ImportError(f"No module named '{name}'")
+            return real_import(name, *args, **kwargs)
+
+        monkeypatch.setattr(builtins, "__import__", fake_import)
         reasoner = ContextReasoner(mode="gemini")
         # Should have gracefully downgraded
         assert reasoner.mode == "mock"
