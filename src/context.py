@@ -87,7 +87,7 @@ class ContextReasoner:
     ollama_model : str
         Ollama model name (default qwen3:1.7b).
     gemini_model : str
-        Gemini model name (default gemini-1.5-flash).
+        Gemini model name (default gemini-2.5-flash).
     max_retries : int
         Max JSON parse retries per LLM call.
     """

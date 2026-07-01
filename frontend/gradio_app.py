@@ -7,13 +7,16 @@ Gradio Demo — X-OCR Explainable OCR System
   Tab 3 — Heatmap Gallery (one image per word)
 
 Can be run in two modes:
-  1. Direct mode (no API server needed):
-     Set USE_API=false — calls OCRPipeline directly in-process.
-     Requires models to be available locally.
+  1. Direct mode (default, no API server needed):
+     Set USE_API=false (or leave unset) — calls OCRPipeline directly in-process.
+     All models are loaded ONCE at module import time (script startup), not
+     per-request, exactly like api/main.py's lifespan pattern. Requires
+     models to be available locally (or MOCK_MODE=true for fake output).
 
-  2. API mode (default):
+  2. API mode:
      Set USE_API=true and API_URL to your FastAPI server.
-     Lighter-weight — Gradio process does not load ML models.
+     Lighter-weight — this Gradio process does not load any ML models itself;
+     it just forwards the image to a running FastAPI /ocr endpoint.
 
 Run:
     python frontend/gradio_app.py
@@ -35,8 +38,73 @@ from PIL import Image
 # Allow importing from project root
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), ".."))
 
+# Load .env BEFORE reading any environment variables below.
+# Without this, MOCK_MODE / LLM_MODE / API keys from your .env file are
+# silently ignored and every default kicks in instead (this was the bug —
+# the pipeline previously defaulted to full mock mode regardless of .env).
+from dotenv import load_dotenv
+load_dotenv()
+
 USE_API = os.environ.get("USE_API", "false").lower() == "true"
 API_URL = os.environ.get("API_URL", "http://localhost:8000")
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# Model Loading — runs ONCE at script startup, not per-request
+# ─────────────────────────────────────────────────────────────────────────────
+# Only needed in direct mode. In API mode, the FastAPI server owns all models
+# and this Gradio process stays lightweight.
+
+_pipeline = None  # populated below if USE_API is False
+
+if not USE_API:
+    from src.pipeline import OCRPipeline
+    from src.preprocessing import Preprocessor
+    from src.layout import LayoutAnalyser
+    from src.ocr import TrOCREngine
+    from src.context import ContextReasoner
+    from src.xai import XAIGenerator
+    from src.explanation import ExplanationAgent
+
+    _mock = os.environ.get("MOCK_MODE", "false").lower() == "true"
+    _llm_mode = os.environ.get("LLM_MODE", "mock")
+
+    print(f"[gradio_app] Loading models (MOCK_MODE={_mock}, LLM_MODE={_llm_mode}) …")
+
+    _preprocessor = Preprocessor()
+    _layout_analyser = LayoutAnalyser(mock=_mock)
+    _ocr_engine = TrOCREngine(mock=_mock)
+
+    # Guard: if non-mock mode but the TrOCR model failed to load, warn clearly
+    # instead of silently falling back to mock heatmaps with no explanation.
+    if not _mock and getattr(_ocr_engine, "_model", None) is None:
+        print(
+            "[gradio_app] WARNING: TrOCREngine model is None in non-mock mode. "
+            "This usually means the model download failed or TROCR_FINETUNED_PATH "
+            "is misconfigured. OCR output will be mock/random. "
+            "Check your network connection or set MOCK_MODE=true."
+        )
+
+    _xai_generator = XAIGenerator(
+        model=_ocr_engine._model if not _mock else None,
+        processor=_ocr_engine._processor if not _mock else None,
+        mock=_mock,
+    )
+    _context_reasoner = ContextReasoner(mode=_llm_mode)
+    _explanation_agent = ExplanationAgent(mode=_llm_mode)
+
+    _pipeline = OCRPipeline(
+        preprocessor=_preprocessor,
+        layout_analyser=_layout_analyser,
+        ocr_engine=_ocr_engine,
+        context_reasoner=_context_reasoner,
+        xai_generator=_xai_generator,
+        explanation_agent=_explanation_agent,
+    )
+
+    print("[gradio_app] Models loaded. Ready to accept requests.")
+else:
+    print(f"[gradio_app] Running in API mode — forwarding requests to {API_URL}")
 
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -67,10 +135,16 @@ def _run_via_api(image_bytes: bytes) -> dict:
 
 
 def _run_direct(image_bytes: bytes) -> dict:
-    """Run pipeline in-process (loads models on first call)."""
-    from src.pipeline import OCRPipeline
-    pipeline = OCRPipeline()  # Uses mock mode unless env vars set otherwise
-    result = pipeline.run(image_bytes)
+    """
+    Run pipeline in-process using the module-level _pipeline instance.
+    Models were already loaded once at script startup — this function only
+    runs inference, never re-initialises any model.
+    """
+    if _pipeline is None:
+        raise RuntimeError(
+            "Pipeline not initialised. This should not happen when USE_API=false."
+        )
+    result = _pipeline.run(image_bytes)
     return result.to_dict()
 
 
@@ -208,7 +282,7 @@ with gr.Blocks(
 
     gr.HTML("""
         <div style="text-align:center; margin-top:1rem; color:#666; font-size:0.85rem;">
-            X-OCR — TrOCR + LayoutLMv3 + GradCAM + Claude/Qwen |
+            X-OCR — TrOCR + LayoutLMv3 + GradCAM + Claude/Gemini/Qwen |
             <a href="http://localhost:8000/docs" target="_blank">API Docs</a>
         </div>
     """)

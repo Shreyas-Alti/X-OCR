@@ -39,6 +39,18 @@ try:
 except ImportError:
     pass
 
+# Configure pytesseract path (needed when tesseract is installed via conda)
+try:
+    import pytesseract
+    _tess_cmd = os.environ.get(
+        "TESSERACT_CMD",
+        r"C:\Users\shreyas.bairyks\miniconda3\envs\xocr\Library\bin\tesseract.exe",
+    )
+    if os.path.isfile(_tess_cmd):
+        pytesseract.pytesseract.tesseract_cmd = _tess_cmd
+except ImportError:
+    pass
+
 
 # ─────────────────────────────────────────────────────────────────────────────
 # Constants
@@ -59,6 +71,19 @@ FINETUNED_PATH = os.environ.get("LAYOUTLMV3_FINETUNED_PATH", "models/layoutlmv3_
 # Column clustering: if two boxes have x1 values differing by < this fraction
 # of page width, they are considered same column.
 COLUMN_X1_THRESHOLD_FRACTION = 0.3
+
+
+def _has_model_files(path: str) -> bool:
+    """Return True only if path contains real HuggingFace model weight files.
+
+    An empty local directory (e.g. only .gitkeep) returns False so the caller
+    falls back to the HuggingFace Hub instead of failing silently.
+    """
+    if not os.path.isdir(path):
+        return False
+    files = set(os.listdir(path))
+    model_files = {"pytorch_model.bin", "model.safetensors", "config.json"}
+    return bool(files & model_files)
 
 
 def _load_label_scheme(checkpoint_dir: str) -> tuple:
@@ -148,16 +173,19 @@ class LayoutAnalyser:
     def _load_model(self, path: str) -> None:
         """Load processor and model from local path or HuggingFace Hub.
 
+        Falls back to the HuggingFace Hub base model when the local
+        checkpoint directory is empty or missing model weight files.
+
         If the checkpoint directory contains a labels.json file (written
         by notebook 02b after fine-tuning), the label scheme is loaded from
         it. This handles the BIO vs flat-label mismatch between the base model
         (4-label) and the fine-tuned model (7-label BIO tagset from FUNSD).
         """
         import torch
-        src = path if os.path.isdir(path) else DEFAULT_MODEL_NAME
+        src = path if _has_model_files(path) else DEFAULT_MODEL_NAME
 
         # Load label scheme — from labels.json if present, else default 4-label
-        checkpoint_for_labels = path if os.path.isdir(path) else ""
+        checkpoint_for_labels = path if _has_model_files(path) else ""
         labels, label2id, id2label = _load_label_scheme(checkpoint_for_labels)
 
         try:

@@ -52,6 +52,19 @@ NUM_BEAMS = 5
 NUM_RETURN_SEQUENCES = 5
 
 
+def _has_model_files(path: str) -> bool:
+    """Return True only if path is a directory containing real model weights.
+
+    An empty directory (e.g. only .gitkeep) returns False so the caller
+    falls back to the HuggingFace Hub instead of crashing silently.
+    """
+    if not os.path.isdir(path):
+        return False
+    files = set(os.listdir(path))
+    model_files = {"pytorch_model.bin", "model.safetensors", "config.json"}
+    return bool(files & model_files)
+
+
 # ─────────────────────────────────────────────────────────────────────────────
 # TrOCREngine
 # ─────────────────────────────────────────────────────────────────────────────
@@ -121,11 +134,18 @@ class TrOCREngine:
     # ── Model Loading ─────────────────────────────────────────────────────────
 
     def _load_model(self, path: str) -> None:
-        """Load TrOCRProcessor and VisionEncoderDecoderModel."""
-        src = path if os.path.isdir(path) else DEFAULT_MODEL_NAME
+        """Load TrOCRProcessor and VisionEncoderDecoderModel.
+
+        Falls back to the HuggingFace Hub base model when the local
+        checkpoint directory is empty or missing model weight files.
+        """
+        src = path if _has_model_files(path) else DEFAULT_MODEL_NAME
         try:
             self._processor = TrOCRProcessor.from_pretrained(src)
-            self._model = VisionEncoderDecoderModel.from_pretrained(src).to(self._device)
+            self._model = VisionEncoderDecoderModel.from_pretrained(
+                src,
+                attn_implementation="eager",
+            ).to(self._device)
             self._model.eval()
             print(f"[TrOCREngine] Loaded model from '{src}' on {self._device}")
         except Exception as exc:
